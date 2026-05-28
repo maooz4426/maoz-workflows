@@ -5,7 +5,7 @@
 ## 使い方
 
 ```yaml
-- uses: maoz/maoz-workflows/terraform-fmt@main
+- uses: maooz4426/maoz-workflows/terraform-fmt@main
   with:
     head_ref: ${{ github.head_ref }}
 ```
@@ -31,7 +31,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: maoz/maoz-workflows/terraform-fmt@main
+      - uses: maooz4426/maoz-workflows/terraform-fmt@main
         with:
           head_ref: ${{ github.head_ref }}
 ```
