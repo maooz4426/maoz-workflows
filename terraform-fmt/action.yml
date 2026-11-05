@@ -5,6 +5,10 @@ inputs:
   head_ref:
     required: true
     description: head_refを指定
+  token:
+    required: false
+    default: ${{ github.token }}
+    description: checkoutとpushに使うトークン。pushでworkflowを起動するときはGitHub Appのトークンを指定
 
 runs:
   using: "composite"
@@ -14,6 +18,7 @@ runs:
       with:
         fetch-depth: 0
         ref: ${{ inputs.head_ref }}
+        token: ${{ inputs.token }}
 
     - uses: hashicorp/setup-terraform@v4
 
