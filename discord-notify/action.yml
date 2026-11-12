@@ -1,0 +1,78 @@
+name: Discord notify
+description: ジョブの結果をDiscordのWebhookに通知します
+
+inputs:
+  webhook-url:
+    required: false
+    default: ""
+    description: DiscordのWebhook URL。空のときは警告を出して通知をスキップする
+  title:
+    required: true
+    description: '通知のタイトル。末尾に ": <status>" を付ける'
+  needs:
+    required: true
+    description: 呼び出し元の toJSON(needs) の結果を指定
+  mention-user-id:
+    required: false
+    default: ""
+    description: success と failure のときにメンションするDiscordのユーザーID
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send Discord notification
+      shell: bash
+      env:
+        DISCORD_WEBHOOK_URL: ${{ inputs.webhook-url }}
+        TITLE: ${{ inputs.title }}
+        NEEDS_JSON: ${{ inputs.needs }}
+        MENTION_USER_ID: ${{ inputs.mention-user-id }}
+        REF_NAME: ${{ github.ref_name }}
+        SHA: ${{ github.sha }}
+        ACTOR: ${{ github.actor }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+          echo "::warning::webhook-url is not set. Skip the notification."
+          exit 0
+        fi
+        # All jobs success -> success. Any job cancelled -> cancelled. Else -> failure.
+        status=$(jq -r '[.[].result] as $r
+          | if ($r | length) > 0 and ($r | all(. == "success")) then "success"
+            elif ($r | any(. == "cancelled")) then "cancelled"
+            else "failure" end' <<<"$NEEDS_JSON")
+        case "$status" in
+          success) color=$((0x2EB67D)) ;;
+          cancelled) color=$((0x9E9E9E)) ;;
+          *) color=$((0xE01E5A)) ;;
+        esac
+        # Mention the user on success and failure. Discord pings only from "content".
+        content=""
+        user_ids="[]"
+        if [ "$status" != "cancelled" ] && [ -n "$MENTION_USER_ID" ]; then
+          content="<@${MENTION_USER_ID}>"
+          user_ids=$(jq -nc --arg id "$MENTION_USER_ID" '[$id]')
+        fi
+        # Make one inline field for each job in "needs".
+        job_fields=$(jq -c 'to_entries | map({
+          name: ((.key[0:1] | ascii_upcase) + .key[1:]),
+          value: .value.result,
+          inline: true})' <<<"$NEEDS_JSON")
+        payload=$(jq -n \
+          --arg content "$content" \
+          --argjson user_ids "$user_ids" \
+          --arg title "${TITLE}: ${status}" \
+          --arg url "$RUN_URL" \
+          --argjson color "$color" \
+          --arg ref "$REF_NAME" \
+          --arg sha "${SHA:0:7}" \
+          --arg actor "$ACTOR" \
+          --argjson job_fields "$job_fields" \
+          '{content: $content, allowed_mentions: {parse: [], users: $user_ids},
+            embeds: [{title: $title, url: $url, color: $color, fields: ([
+            {name: "Ref", value: $ref, inline: true},
+            {name: "Commit", value: $sha, inline: true},
+            {name: "Actor", value: $actor, inline: true}
+          ] + $job_fields)}]}')
+        curl -fsS -X POST -H "Content-Type: application/json" \
+          -d "$payload" "$DISCORD_WEBHOOK_URL"
